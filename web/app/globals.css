@@ -62,6 +62,17 @@ input {
   padding: 24px;
 }
 .signin h1 { margin: 0; font-size: 22px; }
+a.button {
+  display: block;
+  text-align: center;
+  background: var(--accent);
+  color: white;
+  border-radius: 8px;
+  padding: 9px 14px;
+  text-decoration: none;
+}
+.connector-form { display: grid; gap: 6px; }
+.status.syncing, .status.new { color: #d97706; }
 .signin label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
 
 .shell { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
