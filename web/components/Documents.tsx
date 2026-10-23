@@ -8,6 +8,12 @@ export function Documents({ token, userId, readOnly = false }: { token: string; 
   const [acl, setAcl] = useState("group:everyone");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [listOpen, setListOpen] = useState(true);
+
+  // Start collapsed on phones.
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 760px)").matches) setListOpen(false);
+  }, []);
 
   const refresh = useCallback(() => {
     api<Doc[]>(token, "/documents").then(setDocs).catch((e) => setError(e.message));
@@ -72,24 +78,35 @@ export function Documents({ token, userId, readOnly = false }: { token: string; 
           </label>
         </>
       )}
-      {error && <p className="error">{error}</p>}
-      <ul>
-        {docs.map((d) => (
-          <li key={d.id} title={d.error ?? d.acl.join(", ")}>
-            <div className="doc-title">{d.title}</div>
-            <div className="muted small">
-              <span className={`status ${d.status}`}>{d.status}</span>
-              {d.chunk_count != null && ` · ${d.chunk_count} chunks`} · {d.acl.join(", ")}
-            </div>
-            {d.created_by === userId && (
-              <button className="link small" onClick={() => remove(d.id)}>
-                Delete
-              </button>
-            )}
-          </li>
-        ))}
-        {!docs.length && <li className="muted small">No documents you can see yet.</li>}
-      </ul>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {/* Collapsible so the list doesn't push the chat off-screen on phones. */}
+      <details open={listOpen} onToggle={(e) => setListOpen(e.currentTarget.open)}>
+        <summary>
+          {docs.length} {docs.length === 1 ? "document" : "documents"}
+        </summary>
+        <ul>
+          {docs.map((d) => (
+            <li key={d.id}>
+              <div className="doc-title">{d.title}</div>
+              <div className="muted small">
+                <span className={`status ${d.status}`}>{d.status}</span>
+                {d.chunk_count != null && ` · ${d.chunk_count} chunks`} · {d.acl.join(", ")}
+              </div>
+              {d.error && <div className="error">{d.error}</div>}
+              {d.created_by === userId && (
+                <button className="link small" onClick={() => remove(d.id)} aria-label={`Delete ${d.title}`}>
+                  Delete
+                </button>
+              )}
+            </li>
+          ))}
+          {!docs.length && <li className="muted small">No documents you can see yet.</li>}
+        </ul>
+      </details>
     </section>
   );
 }
