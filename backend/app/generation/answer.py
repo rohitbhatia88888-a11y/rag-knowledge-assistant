@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 from app.config import get_settings
 from app.generation.prompts import IDK_ANSWER, REWRITE_SYSTEM, answer_messages
 from app.retrieval.store import RetrievedChunk
+from app.tracing import observation
 
 CITATION_RE = re.compile(r"\[(\d+)\]")
 
@@ -15,29 +16,40 @@ async def rewrite_query(llm: AsyncOpenAI | None, question: str, history: list[di
     if llm is None or not history:
         return question
     convo = "\n".join(f"{m['role']}: {m['content'][:500]}" for m in history[-6:])
-    resp = await llm.chat.completions.create(
-        model=get_settings().llm_model,
-        temperature=0,
-        max_tokens=100,
-        messages=[
-            {"role": "system", "content": REWRITE_SYSTEM},
-            {"role": "user", "content": f"Conversation:\n{convo}\n\nLatest message: {question}"},
-        ],
-    )
-    return (resp.choices[0].message.content or question).strip()
+    with observation("rewrite-query", input=question) as obs:
+        resp = await llm.chat.completions.create(
+            model=get_settings().llm_model,
+            temperature=0,
+            max_tokens=100,
+            messages=[
+                {"role": "system", "content": REWRITE_SYSTEM},
+                {"role": "user", "content": f"Conversation:\n{convo}\n\nLatest message: {question}"},
+            ],
+        )
+        rewritten = (resp.choices[0].message.content or question).strip()
+        obs.update(output=rewritten)
+        return rewritten
 
 
 async def stream_answer(llm: AsyncOpenAI, question: str, chunks: list[RetrievedChunk]) -> AsyncIterator[str]:
-    stream = await llm.chat.completions.create(
-        model=get_settings().llm_model,
-        temperature=0.1,
-        max_tokens=get_settings().answer_max_tokens,
-        stream=True,
-        messages=answer_messages(question, chunks),
-    )
-    async for event in stream:
-        if event.choices and (delta := event.choices[0].delta.content):
-            yield delta
+    with observation("answer", input=question) as obs:
+        stream = await llm.chat.completions.create(
+            model=get_settings().llm_model,
+            temperature=0.1,
+            max_tokens=get_settings().answer_max_tokens,
+            stream=True,
+            messages=answer_messages(question, chunks),
+        )
+        parts: list[str] = []
+        async for event in stream:
+            if event.choices and (delta := event.choices[0].delta.content):
+                parts.append(delta)
+                yield delta
+        obs.update(output="".join(parts))
+
+
+async def generate_answer(llm: AsyncOpenAI, question: str, chunks: list[RetrievedChunk]) -> str:
+    return "".join([delta async for delta in stream_answer(llm, question, chunks)])
 
 
 def extract_citations(answer: str, n_sources: int) -> tuple[list[int], list[int]]:
@@ -52,4 +64,5 @@ def extract_citations(answer: str, n_sources: int) -> tuple[list[int], list[int]
 
 
 def is_idk(answer: str) -> bool:
-    return answer.strip().rstrip(".").lower() == IDK_ANSWER.rstrip(".").lower()
+    """True if the answer is a refusal. Contains-check, since models sometimes add a sentence around it."""
+    return IDK_ANSWER.rstrip(".").lower() in answer.lower()

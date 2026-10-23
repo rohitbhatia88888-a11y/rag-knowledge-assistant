@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -58,6 +58,7 @@ class Message(Base):
     sources: Mapped[list | None] = mapped_column(JSON)
     cited_chunk_ids: Mapped[list | None] = mapped_column(JSON)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    trace_id: Mapped[str | None] = mapped_column(String(32))  # Langfuse trace, when tracing is on
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -82,9 +83,11 @@ async def get_db():
 
 
 async def init_db() -> None:
-    # Phase 1 creates tables directly; move to Alembic migrations before connectors land.
+    # Tables are created directly for now; move to Alembic migrations before connectors land.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Columns added after a table first existed (create_all never alters tables).
+        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS trace_id VARCHAR(32)"))
 
 
 __all__ = ["AsyncSession", "Base", "ChatSession", "Document", "Feedback", "Message", "SessionLocal", "get_db", "init_db"]

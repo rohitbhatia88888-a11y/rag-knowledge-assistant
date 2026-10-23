@@ -1,4 +1,0 @@
-{"question": "How many days of annual leave do full-time employees get?", "expected_document": "leave-policy", "expected_text": "25 days"}
-{"question": "Can I carry over unused leave?", "expected_document": "leave-policy", "expected_text": "carried over"}
-{"question": "How many sick days are paid?", "expected_document": "leave-policy", "expected_text": "10 paid sick days"}
-{"question": "Who approves expenses over 500 dollars?", "expected_document": "expense-policy", "expected_text": "finance director"}

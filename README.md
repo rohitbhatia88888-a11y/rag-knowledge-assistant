@@ -20,7 +20,7 @@ Next.js chat ──► FastAPI ──► query rewrite ──► hybrid search (
 | Hybrid search | One Qdrant collection with a dense vector (BGE via fastembed, or OpenAI) and a sparse BM25 vector (IDF computed by Qdrant), fused with RRF |
 | Permissions | `tenant_id` + `acl` on every chunk payload, filtered **inside** both search branches. ACL changes update payloads only, with no re-embedding. Fails closed. |
 | Incremental re-index | Point IDs derive from `document_id + content_hash`; re-indexing embeds only new chunks and deletes stale ones |
-| Re-ranking | Cross-encoder via fastembed (`ms-marco-MiniLM-L-12-v2`; it separated answerable from unanswerable questions better than `jina-reranker-v1-turbo` and `bge-reranker-v2-m3` on the samples). Section headings are included in what it scores |
+| Re-ranking | Cross-encoder via fastembed (`ms-marco-MiniLM-L-12-v2`; it separated answerable from unanswerable questions better than `jina-reranker-v1-turbo` and `bge-reranker-v2-m3` on the samples). Section headings are included in what it scores. At most 3 of the top 5 chunks come from one document, so cross-document questions keep room for the second source |
 | "I don't know" | If the top chunk scores below `MIN_RERANK_SCORE`, the LLM isn’t called; the prompt also requires the exact refusal sentence |
 | Citations | Numbered sources, `[n]` markers validated after generation; invalid ones are logged |
 | Feedback | Thumbs up/down stored against the assistant message, which records the search query and cited chunk IDs |
@@ -50,26 +50,89 @@ cd web && npm install && npm run dev
 
 Open http://localhost:3000, sign in as `alice` with group `hr`, then upload `samples/*.md` with different "Visible to" settings. Sign in as `bob` with no groups to see the permission filter at work.
 
-Or run everything in containers: `docker-compose up --build`.
+Or run everything in containers: `docker-compose up --build`. With Colima, give the VM at least 6 GB (`colima start --cpu 4 --memory 6`); the default 2 GB gets the API container OOM-killed, especially alongside Langfuse.
 
-Without `OPENAI_API_KEY` the chat still runs retrieval and shows the cited passages, then reports that no LLM is configured.
+Without `OPENAI_API_KEY` the chat still runs retrieval and shows the cited passages, then reports that no LLM is configured. Any OpenAI-compatible endpoint works; `.env.example` is set up for OpenRouter.
 
-## Tests and eval
+## Tracing (Langfuse)
+
+```bash
+docker-compose -f docker-compose.langfuse.yml -p langfuse up -d
+```
+
+Then set `LANGFUSE_PUBLIC_KEY=pk-lf-local-dev`, `LANGFUSE_SECRET_KEY=sk-lf-local-dev` and `LANGFUSE_BASE_URL=http://localhost:3001` in `.env`. The UI is at http://localhost:3001 (`admin@halcyon.example` / `local-dev-password`, local only).
+
+Each chat request is one trace: `chat` → `rewrite-query` → `retrieve` (chunks, pages, re-ranker scores) → `answer`, with the LLM call recorded as a generation (model, tokens, cost). The trace carries tenant/user and session, and thumbs up/down from the UI lands on it as a `user_feedback` score, so weak answers can be filtered to their exact retrieval. Tracing is a no-op when the keys are unset.
+
+## Tests
 
 ```bash
 cd backend && uv run pytest
 ```
 
-The tests run the real embedding and re-ranking models against an in-memory Qdrant. They cover tenant and ACL isolation, ACL changes without re-embedding, and re-index embedding only changed chunks.
+The tests run the real embedding and re-ranking models against an in-memory Qdrant. They cover tenant and ACL isolation, ACL changes without re-embedding, re-indexing only changed chunks, and the per-document chunk cap.
+
+## Evaluation
+
+`eval/corpus/` is a fictional company, Halcyon Robotics: 11 documents (Markdown, plus PDFs rendered from HTML so tables and page layout go through the real PDF parser) shared with four permission groups. `eval/dataset.jsonl` has 141 hand-written questions, each asked as a persona with that persona's groups:
+
+| Category | n | What it tests |
+|---|---|---|
+| fact | 76 | single passage |
+| table | 21 | answer inside a PDF or Markdown table |
+| paraphrase | 9 | question uses different words than the document |
+| multi_doc | 10 | needs passages from two documents |
+| unanswerable | 15 | nothing in the corpus answers it |
+| forbidden | 10 | the answer exists, but only in a document the persona can't see |
+
+Every answerable question lists its evidence (document + phrase), so retrieval is scored without an LLM. The runner also verifies that every evidence phrase exists in the parsed corpus before running.
 
 ```bash
-uv --project backend run python eval/retrieval_eval.py eval/sample_dataset.jsonl --user alice --groups hr
+cd backend
+uv run --group eval python ../eval/run_eval.py              # retrieval + gate: free, ~30 s
+uv run --group eval python ../eval/run_eval.py --llm        # + answers, refusals, citations, RAGAS
+uv run --group eval python ../eval/run_eval.py --gate       # exit 1 below eval/thresholds.json
+uv run --group eval python ../eval/tune.py                  # compare configs, sweep the IDK threshold
 ```
+
+| Metric | Meaning |
+|---|---|
+| `retrieval.hit_rate` / `evidence_recall` / `mrr` | all / each evidence passage in the top 5, and how high the first one ranks |
+| `security.leaked_chunks` | chunks retrieved from a document the persona can't access (must be 0) |
+| `gate.answer_rate` | answerable questions not cut off by the re-ranker score gate |
+| `answer.answer_rate` / `refusal_rate` | final answers vs "I don't know" on answerable / unanswerable+forbidden |
+| `answer.citation_rate`, `invalid_citations` | answers carrying `[n]` citations; citations to sources that don't exist |
+| `ragas.faithfulness`, `ragas.answer_relevancy` | RAGAS 0.4, judged through the same OpenAI-compatible endpoint; relevancy embeddings run locally |
+
+With tracing on, every eval question is a trace tagged `eval` with its RAGAS scores attached.
+
+### First tuning pass (retrieval, 141 questions)
+
+| Config | hit rate | evidence recall | MRR |
+|---|---|---|---|
+| Baseline: 1200-char chunks, bge-small, MiniLM-L-12 | 0.991 | 0.992 | 0.968 |
+| 600 / 2000-char chunks | 0.991 | 0.992 | 0.968 |
+| Re-ranker MiniLM-L-6 | 0.991 | 0.992 | 0.953 |
+| Re-ranker bge-reranker-v2-m3 (int8) | 0.991 | 0.992 | 0.960 |
+| Embeddings bge-base | 1.000 | 1.000 | 0.968 |
+| final_k 8 | 1.000 | 1.000 | 0.968 |
+| **Max 3 chunks per document (adopted)** | **1.000** | **1.000** | **0.968** |
+| Max 2 chunks per document | 0.974 | 0.976 | 0.966 |
+
+- The one miss was a cross-document question where all five slots went to one document. Capping chunks per document fixes it with no model change and no extra tokens.
+- Chunk size made no difference: the corpus's sections are shorter than 600 characters, so heading-aware chunking decides boundaries. Re-test on longer documents.
+- The re-ranker score is a weak "is this answerable?" signal: "pet insurance" scores +3.1 against the health-insurance chunk. The gate is now −11 (keeps 100% of answerable questions, skips the clearly off-topic 12%) and the LLM's refusal handles the rest.
+
+Answer-quality numbers (`--llm`) are not recorded yet: a 3-question smoke run scored faithfulness 1.0 and answer relevancy 0.89, and the full run needs about $0.15–0.30 of LLM credit with Claude Haiku as model and judge.
+
+### CI
+
+`.github/workflows/ci.yml` runs on every push and PR: unit tests, the retrieval eval with `--gate`, and the web typecheck/build. On PRs, if the `OPENAI_API_KEY` secret is set (plus optional `OPENAI_BASE_URL` / `LLM_MODEL` variables), it also runs the `--llm` eval and gates on faithfulness, relevancy, refusals and citations. Result files are uploaded as artifacts.
 
 ## Roadmap (Industry edition)
 
 1. ~~Core pipeline: upload, parse, chunk, hybrid search, rerank, cited streaming, feedback~~
-2. Eval and tracing: 100+ question set, RAGAS faithfulness/relevancy gated in CI, Langfuse traces
+2. ~~Eval and tracing: 141-question set, RAGAS faithfulness/relevancy gated in CI, Langfuse traces~~ (full `--llm` baseline pending credits)
 3. Google Drive connector: changes API with page tokens, deletes, permission sync into `acl`, SSO (OIDC)
 4. Notion and Confluence connectors; Alembic migrations; large tenants on their own Qdrant shard keys
 5. Semantic cache keyed on question embedding **and** ACL fingerprint, invalidated on document version; load tests for p95

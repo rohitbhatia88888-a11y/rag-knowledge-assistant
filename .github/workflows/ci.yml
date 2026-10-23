@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+
+jobs:
+  backend:
+    name: Tests and retrieval eval gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Cache embedding and re-ranker models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-${{ hashFiles('backend/app/config.py') }}
+      - run: uv sync --group eval --python 3.12
+      - name: Unit tests
+        run: uv run pytest -q
+      - name: Retrieval eval (no LLM), gated on eval/thresholds.json
+        run: uv run --group eval python ../eval/run_eval.py --gate
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-retrieval
+          path: eval/results/
+
+  answer-eval:
+    name: Answer eval (RAGAS) gate
+    needs: backend
+    runs-on: ubuntu-latest
+    # Costs LLM credits, so it runs on PRs only, and only when the API key secret is configured.
+    if: github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL || 'https://openrouter.ai/api/v1' }}
+      LLM_MODEL: ${{ vars.LLM_MODEL || 'anthropic/claude-haiku-5.5' }}
+    steps:
+      - name: Skip without API key
+        if: env.OPENAI_API_KEY == ''
+        run: echo "::notice::OPENAI_API_KEY secret not set; skipping the answer eval."
+      - uses: actions/checkout@v4
+        if: env.OPENAI_API_KEY != ''
+      - uses: astral-sh/setup-uv@v6
+        if: env.OPENAI_API_KEY != ''
+        with:
+          enable-cache: true
+      - uses: actions/cache@v4
+        if: env.OPENAI_API_KEY != ''
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-${{ hashFiles('backend/app/config.py') }}
+      - if: env.OPENAI_API_KEY != ''
+        run: uv sync --group eval --python 3.12
+      - name: Answer eval with RAGAS, gated on eval/thresholds.json
+        if: env.OPENAI_API_KEY != ''
+        run: uv run --group eval python ../eval/run_eval.py --llm --gate
+      - uses: actions/upload-artifact@v4
+        if: always() && env.OPENAI_API_KEY != ''
+        with:
+          name: eval-answers
+          path: eval/results/
+
+  web:
+    name: Web typecheck and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build

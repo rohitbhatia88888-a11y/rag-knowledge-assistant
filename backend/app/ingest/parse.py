@@ -6,6 +6,7 @@ context to every chunk and never cut a table in half.
 
 import re
 import statistics
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -31,10 +32,16 @@ class ParsedDocument:
 
 def parse_file(path: Path, mime_type: str) -> ParsedDocument:
     if mime_type == "application/pdf" or path.suffix.lower() == ".pdf":
-        return parse_pdf(path)
-    if path.suffix.lower() in {".md", ".markdown", ".txt"} or mime_type.startswith("text/"):
-        return parse_markdown(path.read_text(encoding="utf-8", errors="replace"))
-    raise ValueError(f"Unsupported file type: {mime_type} ({path.suffix})")
+        parsed = parse_pdf(path)
+    elif path.suffix.lower() in {".md", ".markdown", ".txt"} or mime_type.startswith("text/"):
+        parsed = parse_markdown(path.read_text(encoding="utf-8", errors="replace"))
+    else:
+        raise ValueError(f"Unsupported file type: {mime_type} ({path.suffix})")
+    # NFKC folds PDF ligatures ("ﬁ" -> "fi") and other compatibility characters, which
+    # would otherwise never match a typed keyword in BM25.
+    for block in parsed.blocks:
+        block.text = unicodedata.normalize("NFKC", block.text)
+    return parsed
 
 
 def parse_markdown(text: str) -> ParsedDocument:
