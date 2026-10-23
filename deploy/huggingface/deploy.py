@@ -31,7 +31,7 @@ def stage(dest: Path) -> None:
     archive.unlink()
     for tests in dest.glob("backend/tests"):
         subprocess.run(["rm", "-rf", str(tests)], check=True)
-    (dest / "Dockerfile").write_text((HERE / "Dockerfile").read_text())
+    (dest / "Dockerfile").write_text((HERE.parent / "Dockerfile.demo").read_text())
     (dest / "README.md").write_text((HERE / "README.md").read_text())
 
 

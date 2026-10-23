@@ -1,0 +1,8 @@
+# Builds the demo image on Google Cloud Build (amd64, which Cloud Run needs; the Mac is arm64).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "deploy/Dockerfile.demo", "-t", "${_IMAGE}", "."]
+images: ["${_IMAGE}"]
+timeout: 1800s
+options:
+  logging: CLOUD_LOGGING_ONLY
