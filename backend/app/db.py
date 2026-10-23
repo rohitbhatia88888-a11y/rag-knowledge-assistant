@@ -1,7 +1,18 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -34,6 +45,35 @@ class Document(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # Set for documents owned by a connector (e.g. a Google Drive file); uploads leave them null.
+    connector_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("connectors.id", ondelete="CASCADE"))
+    external_id: Mapped[str | None] = mapped_column(String(256))
+    # Source-side version (md5 or modifiedTime); unchanged means skip download and re-index.
+    external_version: Mapped[str | None] = mapped_column(String(128))
+    external_parents: Mapped[list | None] = mapped_column(JSON)
+
+    __table_args__ = (UniqueConstraint("connector_id", "external_id", name="uq_documents_connector_external"),)
+
+
+class Connector(Base):
+    __tablename__ = "connectors"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    kind: Mapped[str] = mapped_column(String(32))  # gdrive
+    name: Mapped[str] = mapped_column(String(256))
+    # Non-secret settings, e.g. {"folder_ids": [...], "subject": "admin@corp.com"}. Credentials stay in env/files.
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Sync cursor and folder tree, e.g. {"page_token": "123", "folders": {"id": "parent_id"}}.
+    state: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(16), default="new")  # new | syncing | ok | failed
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_full_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    stats: Mapped[dict | None] = mapped_column(JSON)
+    created_by: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ChatSession(Base):
@@ -83,11 +123,13 @@ async def get_db():
 
 
 async def init_db() -> None:
-    # Tables are created directly for now; move to Alembic migrations before connectors land.
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # Columns added after a table first existed (create_all never alters tables).
-        await conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS trace_id VARCHAR(32)"))
+    """Bring the schema to the latest Alembic revision (see backend/migrations)."""
+    from app.migrate import upgrade_to_head
+
+    await upgrade_to_head()
 
 
-__all__ = ["AsyncSession", "Base", "ChatSession", "Document", "Feedback", "Message", "SessionLocal", "get_db", "init_db"]
+__all__ = [
+    "AsyncSession", "Base", "ChatSession", "Connector", "Document", "Feedback", "Message",
+    "SessionLocal", "get_db", "init_db",
+]

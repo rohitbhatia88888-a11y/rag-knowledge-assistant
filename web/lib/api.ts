@@ -24,6 +24,19 @@ export type Doc = {
   mime_type: string;
 };
 
+export type Connector = {
+  id: string;
+  kind: string;
+  name: string;
+  config: { folder_ids: string[]; subject?: string };
+  enabled: boolean;
+  status: "new" | "syncing" | "ok" | "failed";
+  last_sync_at: string | null;
+  last_error: string | null;
+  stats: Record<string, number | boolean> | null;
+  document_count: number;
+};
+
 export type StreamHandlers = {
   onSession: (sessionId: string) => void;
   onSources: (sources: Source[], searchQuery: string) => void;
@@ -37,6 +50,11 @@ export async function api<T>(token: string, path: string, init: RequestInit = {}
     ...init,
     headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` },
   });
+  if (res.status === 401) {
+    // Session expired or revoked: back to sign-in.
+    sessionStorage.removeItem("token");
+    window.location.reload();
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(typeof body.detail === "string" ? body.detail : `${res.status} ${res.statusText}`);

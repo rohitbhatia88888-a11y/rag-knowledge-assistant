@@ -6,11 +6,12 @@ A chat assistant over company documents that answers in plain language, cites th
 
 ```
 Next.js chat ──► FastAPI ──► query rewrite ──► hybrid search (dense + BM25, ACL filter) ──► cross-encoder rerank ──► LLM (cited, streamed)
-                   │                                    ▲
+   │ SSO (OIDC)    │                                    ▲
                    │ upload                             │
                    ▼                                    │
            Redis queue ──► ingest worker: parse ─► chunk ─► embed (only changed chunks) ─► Qdrant
-                                                                          Postgres: documents, ACLs, chats, feedback
+                ▲                                                         Postgres: documents, ACLs, connectors, chats, feedback
+   cron (10 min)┘──► Google Drive sync: changes feed ─► download changed files ─► same pipeline; sharing ─► ACL
 ```
 
 | Concern | How |
@@ -24,6 +25,9 @@ Next.js chat ──► FastAPI ──► query rewrite ──► hybrid search (
 | "I don't know" | If the top chunk scores below `MIN_RERANK_SCORE`, the LLM isn’t called; the prompt also requires the exact refusal sentence |
 | Citations | Numbered sources, `[n]` markers validated after generation; invalid ones are logged |
 | Feedback | Thumbs up/down stored against the assistant message, which records the search query and cited chunk IDs |
+| Sign-in | OpenID Connect (authorization code + PKCE) with any IdP; email domain maps to a tenant; groups from the IdP's `groups` claim. Session JWTs expire after 8 hours |
+| Connectors | Google Drive: full crawl, then the Drive changes feed every 10 minutes and a full reconcile daily. Drive sharing becomes the document ACL |
+| Schema | Alembic migrations, run at startup by the API and worker under a Postgres advisory lock |
 
 ## Run it
 
@@ -48,11 +52,47 @@ cd backend && uv run arq app.worker.WorkerSettings
 cd web && npm install && npm run dev
 ```
 
-Open http://localhost:3000, sign in as `alice` with group `hr`, then upload `samples/*.md` with different "Visible to" settings. Sign in as `bob` with no groups to see the permission filter at work.
+Open http://localhost:3000, sign in as `alice` with group `hr` (add `admins` to manage connectors), then upload `samples/*.md` with different "Visible to" settings. Sign in as `bob` with no groups to see the permission filter at work.
 
 Or run everything in containers: `docker-compose up --build`. With Colima, give the VM at least 6 GB (`colima start --cpu 4 --memory 6`); the default 2 GB gets the API container OOM-killed, especially alongside Langfuse.
 
 Without `OPENAI_API_KEY` the chat still runs retrieval and shows the cited passages, then reports that no LLM is configured. Any OpenAI-compatible endpoint works; `.env.example` is set up for OpenRouter.
+
+## Single sign-on
+
+Set these in `.env` (Google shown; Okta, Entra ID and Keycloak work the same way):
+
+```
+OIDC_ISSUER=https://accounts.google.com
+OIDC_CLIENT_ID=...apps.googleusercontent.com
+OIDC_CLIENT_SECRET=...
+OIDC_REDIRECT_URI=http://localhost:8000/auth/oidc/callback
+OIDC_DOMAIN_TENANTS={"yourcompany.com": "yourcompany"}
+```
+
+In Google Cloud Console → APIs & Services → Credentials, create an OAuth client ID of type *Web application* with that redirect URI. Sign-ins are refused unless the email is verified and its domain is listed in `OIDC_DOMAIN_TENANTS`. The `admins` group (from the IdP's groups claim, or the dev sign-in) can manage connectors. Google doesn't put groups in ID tokens, so Google sign-ins have no groups until a Directory API lookup is added; files shared with a Google group stay invisible to them (fail closed).
+
+The flow keeps no server-side state: state, nonce and the PKCE verifier travel in a 10-minute signed cookie, and the session token returns in the URL fragment so it never reaches server logs. `/auth/dev-token` exists only when `ENV=dev`.
+
+## Google Drive connector
+
+1. In Google Cloud Console, enable the **Google Drive API** and create a **service account**. Download its JSON key and set `GOOGLE_SERVICE_ACCOUNT_FILE=/path/to/key.json` for the API and the worker.
+2. Share the folders to index with the service account's email (Viewer is enough). On Google Workspace you can instead grant domain-wide delegation for the `drive.readonly` scope and set `subject` on the connector to impersonate a user.
+3. Sign in as an admin, open **Connectors**, and add the folder IDs (the last part of the folder's URL). The first sync is a full crawl.
+
+How syncing works (`backend/app/connectors/gdrive/sync.py`):
+
+| Event in Drive | Effect |
+|---|---|
+| File added or edited (md5 / modifiedTime changed) | Downloaded and re-indexed; only changed chunks are re-embedded |
+| Sharing, rename or move within scope | Chunk payloads updated; nothing is downloaded or re-embedded |
+| Trashed, deleted, unshared from the connector, moved out of scope | Removed from the index |
+| Folder moved into scope | Crawled, since Drive emits no change per file inside it |
+| Folder trashed or moved out | Its files are removed unless they also live in another in-scope folder |
+
+Sharing maps to principals: user → `user:<email>`, group → `group:<email>`, domain → `domain:<domain>` (matches every user with that email domain), anyone → `group:everyone` (within the tenant). PDFs, Markdown, text and Google Docs (exported as Markdown) are indexed; other types are skipped. The changes page token is saved only after a sync succeeds, so a failed sync is retried from the same point.
+
+The Drive sync tests run against an in-memory fake Drive with a real changes feed (`tests/test_gdrive_sync.py`); SSO is tested against a fake IdP signing real RS256 tokens (`tests/test_oidc.py`) and was checked end to end against `ghcr.io/navikt/mock-oauth2-server`.
 
 ## Tracing (Langfuse)
 
@@ -147,7 +187,7 @@ With tracing on, every eval question is a trace tagged `eval` with its RAGAS sco
 
 1. ~~Core pipeline: upload, parse, chunk, hybrid search, rerank, cited streaming, feedback~~
 2. ~~Eval and tracing: 141-question set, RAGAS faithfulness/relevancy gated in CI, Langfuse traces~~
-3. Google Drive connector: changes API with page tokens, deletes, permission sync into `acl`, SSO (OIDC)
-4. Notion and Confluence connectors; Alembic migrations; large tenants on their own Qdrant shard keys
+3. ~~Google Drive connector: changes API with page tokens, deletes, permission sync into `acl`, SSO (OIDC); Alembic migrations~~ (next: Google group expansion via the Directory API, push notifications instead of polling)
+4. Notion and Confluence connectors; large tenants on their own Qdrant shard keys
 5. Semantic cache keyed on question embedding **and** ACL fingerprint, invalidated on document version; load tests for p95
 6. Agentic multi-hop retrieval for cross-document questions; weak-answer dashboard from feedback
