@@ -1,0 +1,23 @@
+{
+  "tenant_id": "halcyon",
+  "documents": [
+    {"file": "employee-handbook.md", "acl": ["group:everyone"]},
+    {"file": "benefits-guide.html", "acl": ["group:everyone"]},
+    {"file": "expense-travel-policy.html", "acl": ["group:everyone"]},
+    {"file": "it-security-policy.md", "acl": ["group:everyone"]},
+    {"file": "performance-review-process.md", "acl": ["group:everyone"]},
+    {"file": "onboarding-checklist.md", "acl": ["group:everyone"]},
+    {"file": "oncall-runbook.md", "acl": ["group:engineering"]},
+    {"file": "deployment-sop.md", "acl": ["group:engineering"]},
+    {"file": "postmortem-2026-03-fleet-console.md", "acl": ["group:engineering"]},
+    {"file": "compensation-bands.html", "acl": ["group:hr"]},
+    {"file": "support-sop.md", "acl": ["group:support"]}
+  ],
+  "personas": {
+    "employee": [],
+    "engineer": ["engineering"],
+    "hr": ["hr"],
+    "support": ["support"],
+    "support_lead": ["support", "engineering"]
+  }
+}

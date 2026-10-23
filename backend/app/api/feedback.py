@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import Principal, current_principal
 from app.db import AsyncSession, ChatSession, Feedback, Message, get_db
+from app.tracing import score
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
@@ -26,4 +27,6 @@ async def submit(body: FeedbackIn, principal: Principal = Depends(current_princi
     fb = Feedback(message_id=msg.id, user_id=principal.user_id, rating=body.rating, comment=body.comment)
     db.add(fb)
     await db.commit()
+    # Attach the thumbs up/down to the answer's trace so weak answers can be filtered in Langfuse.
+    score(msg.trace_id, "user_feedback", body.rating, body.comment)
     return {"id": str(fb.id)}

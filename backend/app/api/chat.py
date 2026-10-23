@@ -18,6 +18,7 @@ from app.ratelimit import rate_limit
 from app.retrieval.pipeline import retrieve
 from app.retrieval.store import RetrievedChunk
 from app.services import get_llm, get_store
+from app.tracing import trace, tracing_enabled
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -103,34 +104,48 @@ async def _answer_stream(
     started = time.perf_counter()
     yield sse("session", {"session_id": str(session_id)})
     llm = get_llm()
-    try:
-        search_query = await rewrite_query(llm, question, history)
-        chunks = await retrieve(get_store(), principal, search_query)
-        sources = [source_view(i, c) for i, c in enumerate(chunks, start=1)]
-        yield sse("sources", {"search_query": search_query, "sources": sources})
+    with trace(
+        "chat",
+        user_id=f"{principal.tenant_id}/{principal.user_id}",
+        session_id=str(session_id),
+        tags=[principal.tenant_id],
+        input=question,
+    ) as root:
+        try:
+            search_query = await rewrite_query(llm, question, history)
+            chunks = await retrieve(get_store(), principal, search_query)
+            sources = [source_view(i, c) for i, c in enumerate(chunks, start=1)]
+            yield sse("sources", {"search_query": search_query, "sources": sources})
 
-        if not chunks:
-            answer = IDK_ANSWER
-            yield sse("token", {"text": answer})
-        elif llm is None:
-            yield sse("error", {"message": "No LLM configured (set OPENAI_API_KEY). The retrieved sources are listed below."})
+            if not chunks:
+                answer = IDK_ANSWER
+                yield sse("token", {"text": answer})
+            elif llm is None:
+                yield sse("error", {"message": "No LLM configured (set OPENAI_API_KEY). The retrieved sources are listed below."})
+                return
+            else:
+                parts: list[str] = []
+                async for delta in stream_answer(llm, question, chunks):
+                    parts.append(delta)
+                    yield sse("token", {"text": delta})
+                answer = "".join(parts)
+        except Exception as e:
+            log.exception("chat failed")
+            root.update(level="ERROR", status_message=str(e)[:500])
+            yield sse("error", {"message": "Something went wrong while answering. Please try again."})
             return
-        else:
-            parts: list[str] = []
-            async for delta in stream_answer(llm, question, chunks):
-                parts.append(delta)
-                yield sse("token", {"text": delta})
-            answer = "".join(parts)
-    except Exception:
-        log.exception("chat failed")
-        yield sse("error", {"message": "Something went wrong while answering. Please try again."})
-        return
 
-    valid, invalid = extract_citations(answer, len(chunks))
-    if invalid:
-        log.warning("answer cited non-existent sources %s", invalid)
-    cited_ids = [] if is_idk(answer) else [chunks[n - 1].id for n in valid]
-    latency_ms = int((time.perf_counter() - started) * 1000)
+        valid, invalid = extract_citations(answer, len(chunks))
+        if invalid:
+            log.warning("answer cited non-existent sources %s", invalid)
+        idk = is_idk(answer)
+        cited_ids = [] if idk else [chunks[n - 1].id for n in valid]
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        root.update(
+            output=answer,
+            metadata={"idk": idk, "cited": valid, "invalid_citations": invalid, "latency_ms": latency_ms},
+        )
+        trace_id = root.trace_id
 
     async with SessionLocal() as db:
         msg = Message(
@@ -141,6 +156,7 @@ async def _answer_stream(
             sources=[{k: v for k, v in s.items() if k != "text"} for s in sources],
             cited_chunk_ids=cited_ids,
             latency_ms=latency_ms,
+            trace_id=trace_id if tracing_enabled() else None,
         )
         db.add(msg)
         await db.commit()

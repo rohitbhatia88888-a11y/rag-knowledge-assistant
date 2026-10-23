@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     rate_limit_per_minute: int = 30
 
+    # Tracing is off unless both keys are set.
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_base_url: str = "http://localhost:3001"
+
     # Dense embeddings: "fastembed" runs a BGE model on CPU, "openai" calls the API.
     embedding_provider: str = "fastembed"
     fastembed_model: str = "BAAI/bge-small-en-v1.5"
@@ -41,10 +46,12 @@ class Settings(BaseSettings):
     candidate_k: int = 40  # per-branch candidates before fusion
     fused_k: int = 20  # sent to the re-ranker
     final_k: int = 5  # sent to the LLM
-    # If the best chunk's cross-encoder logit is below this, answer "I don't know".
-    # MiniLM-L-12 on the sample docs: answerable questions top out >= -3.7, unanswerable <= -10.2.
-    # Re-tune on the Phase 2 eval set.
-    min_rerank_score: float = -7.0
+    # At most this many of final_k from one document (0 = no cap). 3 fixed the multi-doc misses in the eval; 2 hurt.
+    max_chunks_per_doc: int = 3
+    # If the best chunk's cross-encoder logit is below this, answer "I don't know" without calling the LLM.
+    # The score is a weak answerability signal (eval/tune.py sweep): -11 keeps every answerable eval question
+    # and only skips clearly off-topic ones; the LLM's own refusal handles the rest.
+    min_rerank_score: float = -11.0
 
 
 @lru_cache

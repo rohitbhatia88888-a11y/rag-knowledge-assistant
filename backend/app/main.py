@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db import init_db
 from app.retrieval.embeddings import get_dense_embedder
 from app.services import get_store
+from app.tracing import get_langfuse
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,6 +20,7 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     s = get_settings()
+    get_langfuse()  # instrument the OpenAI SDK before any client is used
     await init_db()
     await get_store().ensure_collection(get_dense_embedder().dim)
     app.state.redis = Redis.from_url(s.redis_url)
@@ -26,6 +28,7 @@ async def lifespan(app: FastAPI):
     yield
     await app.state.arq.aclose()
     await app.state.redis.aclose()
+    get_langfuse().flush()
 
 
 app = FastAPI(title="RAG Knowledge Assistant", lifespan=lifespan)
