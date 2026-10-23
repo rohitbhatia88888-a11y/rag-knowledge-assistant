@@ -1,0 +1,44 @@
+import logging
+from contextlib import asynccontextmanager
+
+from arq import create_pool
+from arq.connections import RedisSettings
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from redis.asyncio import Redis
+
+from app.api import auth, chat, documents, feedback
+from app.config import get_settings
+from app.db import init_db
+from app.retrieval.embeddings import get_dense_embedder
+from app.services import get_store
+
+logging.basicConfig(level=logging.INFO)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    s = get_settings()
+    await init_db()
+    await get_store().ensure_collection(get_dense_embedder().dim)
+    app.state.redis = Redis.from_url(s.redis_url)
+    app.state.arq = await create_pool(RedisSettings.from_dsn(s.redis_url))
+    yield
+    await app.state.arq.aclose()
+    await app.state.redis.aclose()
+
+
+app = FastAPI(title="RAG Knowledge Assistant", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+for r in (auth.router, documents.router, chat.router, feedback.router):
+    app.include_router(r)
+
+
+@app.get("/health")
+async def health() -> dict:
+    return {"ok": True}
