@@ -5,6 +5,7 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from redis.asyncio import Redis
 
 from app.api import auth, chat, connectors, documents, feedback, oidc
@@ -23,11 +24,13 @@ async def lifespan(app: FastAPI):
     get_langfuse()  # instrument the OpenAI SDK before any client is used
     await init_db()
     await get_store().ensure_collection(get_dense_embedder().dim)
-    app.state.redis = Redis.from_url(s.redis_url)
-    app.state.arq = await create_pool(RedisSettings.from_dsn(s.redis_url))
+    # The demo has no Redis or worker: no uploads or connectors, and rate limits are in-process.
+    app.state.redis = None if s.demo_mode else Redis.from_url(s.redis_url)
+    app.state.arq = None if s.demo_mode else await create_pool(RedisSettings.from_dsn(s.redis_url))
     yield
-    await app.state.arq.aclose()
-    await app.state.redis.aclose()
+    if app.state.arq is not None:
+        await app.state.arq.aclose()
+        await app.state.redis.aclose()
     get_langfuse().flush()
 
 
@@ -45,3 +48,8 @@ for r in (auth.router, oidc.router, documents.router, chat.router, feedback.rout
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True}
+
+
+# Same-origin web app (the demo container); mounted last so API routes win.
+if static_dir := get_settings().web_static_dir:
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="web")

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Doc } from "@/lib/api";
 
-export function Documents({ token, userId }: { token: string; userId: string }) {
+export function Documents({ token, userId, readOnly = false }: { token: string; userId: string; readOnly?: boolean }) {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [acl, setAcl] = useState("group:everyone");
   const [busy, setBusy] = useState(false);
@@ -50,24 +50,28 @@ export function Documents({ token, userId }: { token: string; userId: string }) 
 
   return (
     <section className="docs">
-      <h2>Documents</h2>
-      <label className="small">
-        Visible to
-        <input value={acl} onChange={(e) => setAcl(e.target.value)} placeholder="group:hr,user:bob" />
-      </label>
-      <label className={`upload ${busy ? "disabled" : ""}`}>
-        {busy ? "Uploading…" : "Upload PDF / Markdown"}
-        <input
-          type="file"
-          multiple
-          accept=".pdf,.md,.markdown,.txt"
-          disabled={busy}
-          onChange={(e) => {
-            upload(e.target.files);
-            e.target.value = "";
-          }}
-        />
-      </label>
+      <h2>{readOnly ? "Documents you can see" : "Documents"}</h2>
+      {!readOnly && (
+        <>
+          <label className="small">
+            Visible to
+            <input value={acl} onChange={(e) => setAcl(e.target.value)} placeholder="group:hr,user:bob" />
+          </label>
+          <label className={`upload ${busy ? "disabled" : ""}`}>
+            {busy ? "Uploading…" : "Upload PDF / Markdown"}
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.md,.markdown,.txt"
+              disabled={busy}
+              onChange={(e) => {
+                upload(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        </>
+      )}
       {error && <p className="error">{error}</p>}
       <ul>
         {docs.map((d) => (

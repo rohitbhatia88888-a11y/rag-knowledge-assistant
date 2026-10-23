@@ -134,4 +134,4 @@ def test_callback_without_login_cookie_is_rejected(setup):
 
 def test_config_endpoint(setup):
     client, _, _ = setup
-    assert client.get("/auth/config").json() == {"sso": True, "dev_login": False}
+    assert client.get("/auth/config").json() == {"sso": True, "dev_login": False, "demo": False}

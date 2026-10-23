@@ -15,7 +15,7 @@ type Turn = {
   pending: boolean;
 };
 
-export function Chat({ token }: { token: string }) {
+export function Chat({ token, suggestions = [] }: { token: string; suggestions?: string[] }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -71,6 +71,15 @@ export function Chat({ token }: { token: string }) {
           <div className="empty">
             <h1>Ask about your company's documents</h1>
             <p className="muted">Answers cite the exact page and passage, and only use documents you can access.</p>
+            {suggestions.length > 0 && (
+              <div className="suggestions">
+                {suggestions.map((q) => (
+                  <button key={q} className="suggestion" onClick={() => ask(q)}>
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {turns.map((t, i) => (

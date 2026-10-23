@@ -20,23 +20,21 @@ import argparse
 import asyncio
 import json
 import logging
-import shutil
 import sys
 import tempfile
 import time
-import uuid
 import warnings
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pymupdf
 from qdrant_client import AsyncQdrantClient
 
 from app.auth import Principal
 from app.config import get_settings
 from app.db import Document
+from app.demo import build_corpus
 from app.generation.answer import CITATION_RE, extract_citations, generate_answer, is_idk
 from app.ingest.chunk import chunk_blocks
 from app.ingest.parse import parse_file
@@ -79,50 +77,6 @@ class Result:
 
 
 # ---------------------------------------------------------------- corpus
-
-def render_pdf(html_path: Path, out: Path) -> None:
-    css = (
-        "body{font-family:sans-serif;font-size:11pt} h1{font-size:20pt} h2{font-size:15pt}"
-        " table{border-collapse:collapse} td,th{border:1px solid black;padding:4px}"
-    )
-    story = pymupdf.Story(html=html_path.read_text(), user_css=css)
-    writer = pymupdf.DocumentWriter(str(out))
-    page = pymupdf.paper_rect("letter")
-    more = True
-    while more:
-        device = writer.begin_page(page)
-        more, _ = story.place(page + (54, 54, -54, -54))
-        story.draw(device)
-        writer.end_page()
-    writer.close()
-
-
-def build_corpus(workdir: Path) -> tuple[str, list[Document], dict[str, list[str]]]:
-    manifest = json.loads((CORPUS / "manifest.json").read_text())
-    docs = []
-    for entry in manifest["documents"]:
-        src = CORPUS / entry["file"]
-        if src.suffix == ".html":
-            path, mime = workdir / f"{src.stem}.pdf", "application/pdf"
-            render_pdf(src, path)
-        else:
-            path, mime = workdir / src.name, "text/markdown"
-            shutil.copy(src, path)
-        docs.append(
-            Document(
-                id=uuid.uuid5(uuid.NAMESPACE_URL, f"halcyon/{src.stem}"),
-                tenant_id=manifest["tenant_id"],
-                title=src.stem,
-                source="upload",
-                source_uri=None,
-                mime_type=mime,
-                storage_path=str(path),
-                acl=entry["acl"],
-                created_by="eval",
-            )
-        )
-    return manifest["tenant_id"], docs, manifest["personas"]
-
 
 def validate_dataset(questions: list[dict], docs: list[Document]) -> list[str]:
     """Every evidence phrase must appear in exactly the chunks of the document it names."""
@@ -354,7 +308,7 @@ async def main() -> int:
         questions = questions[: args.limit]
 
     with tempfile.TemporaryDirectory() as tmp:
-        tenant, docs, personas = build_corpus(Path(tmp))
+        tenant, docs, personas = build_corpus(Path(tmp), CORPUS)
         if errors := validate_dataset(questions, docs):
             print("Dataset errors:\n  " + "\n  ".join(errors), file=sys.stderr)
             return 2

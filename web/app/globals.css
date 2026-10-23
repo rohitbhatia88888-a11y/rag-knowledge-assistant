@@ -179,3 +179,40 @@ a.button {
   .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
   .chat { height: 80vh; }
 }
+
+/* Public demo */
+.demo-banner {
+  font-size: 13px;
+  background: var(--accent-soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.demo-intro {
+  width: min(640px, 100%);
+  display: grid;
+  gap: 14px;
+}
+.demo-intro h1 { margin: 0; font-size: 24px; }
+.demo-intro a { color: var(--accent); }
+.personas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.persona {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.persona:hover { border-color: var(--accent); }
+.suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; }
+.suggestion {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 14px;
+  padding: 6px 14px;
+}
+.suggestion:hover { border-color: var(--accent); }

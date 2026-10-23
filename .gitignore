@@ -9,3 +9,4 @@ web/next-env.d.ts
 *.tsbuildinfo
 eval/results/
 *service-account*.json
+web/out/
