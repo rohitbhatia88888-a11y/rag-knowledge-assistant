@@ -29,8 +29,10 @@ class Settings(BaseSettings):
     oidc_groups_claim: str = "groups"  # Okta/Entra can emit groups; Google cannot
     web_url: str = "http://localhost:3000"
 
-    # Google Drive connector: a service account key file. Share folders with the service account's
-    # email, or set a connector's `subject` to impersonate a Workspace user via domain-wide delegation.
+    # Google Drive connector authenticates as a service account; share folders with its email.
+    # Preferred: keyless impersonation of that service account via Application Default Credentials.
+    google_impersonate_service_account: str | None = None  # e.g. rag-drive-reader@project.iam.gserviceaccount.com
+    # Alternative: a key file (needed for domain-wide delegation via a connector's `subject`).
     google_service_account_file: str | None = None
     connector_sync_minutes: int = 10
     connector_full_sync_hours: int = 24

@@ -4,7 +4,10 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Protocol
 
+import google.auth
 import httpx
+from google.auth import impersonated_credentials as impersonated
+from google.auth.credentials import Credentials
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 
@@ -70,10 +73,28 @@ class DriveClient(Protocol):
     async def download(self, file: DriveFile) -> bytes: ...
 
 
+def key_file_credentials(path: str, subject: str | None = None) -> Credentials:
+    """Service account key file; `subject` impersonates a Workspace user (domain-wide delegation)."""
+    creds = service_account.Credentials.from_service_account_file(path, scopes=SCOPES)
+    return creds.with_subject(subject) if subject else creds
+
+
+def impersonated_credentials(target_service_account: str) -> Credentials:
+    """Keyless: act as the service account using Application Default Credentials.
+
+    The caller (e.g. `gcloud auth application-default login`, or a workload identity in production)
+    needs roles/iam.serviceAccountTokenCreator on the service account. Tokens last an hour and no
+    key file exists to leak, which is why orgs that block key creation still allow this.
+    """
+    source, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    return impersonated.Credentials(
+        source_credentials=source, target_principal=target_service_account, target_scopes=SCOPES, lifetime=3600
+    )
+
+
 class GoogleDriveClient:
-    def __init__(self, service_account_file: str, subject: str | None = None, timeout: float = 60) -> None:
-        creds = service_account.Credentials.from_service_account_file(service_account_file, scopes=SCOPES)
-        self._creds = creds.with_subject(subject) if subject else creds
+    def __init__(self, credentials: Credentials, timeout: float = 60) -> None:
+        self._creds = credentials
         self._http = httpx.AsyncClient(base_url=API, timeout=timeout)
         self._lock = asyncio.Lock()
 
