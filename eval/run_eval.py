@@ -37,7 +37,7 @@ from qdrant_client import AsyncQdrantClient
 from app.auth import Principal
 from app.config import get_settings
 from app.db import Document
-from app.generation.answer import extract_citations, generate_answer, is_idk
+from app.generation.answer import CITATION_RE, extract_citations, generate_answer, is_idk
 from app.ingest.chunk import chunk_blocks
 from app.ingest.parse import parse_file
 from app.ingest.pipeline import index_file
@@ -182,6 +182,8 @@ class Judge:
         self.relevancy = AnswerRelevancy(llm=llm, embeddings=LocalEmbeddings())
 
     async def score(self, question: str, answer: str, contexts: list[str]) -> tuple[float, float]:
+        # Citation markers aren't claims; left in, the judge treats "[1]" as unsupported statements.
+        answer = CITATION_RE.sub("", answer).replace(" .", ".")
         f, r = await asyncio.gather(
             self.faithfulness.ascore(user_input=question, response=answer, retrieved_contexts=contexts),
             self.relevancy.ascore(user_input=question, response=answer),

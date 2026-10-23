@@ -123,7 +123,21 @@ With tracing on, every eval question is a trace tagged `eval` with its RAGAS sco
 - Chunk size made no difference: the corpus's sections are shorter than 600 characters, so heading-aware chunking decides boundaries. Re-test on longer documents.
 - The re-ranker score is a weak "is this answerable?" signal: "pet insurance" scores +3.1 against the health-insurance chunk. The gate is now −11 (keeps 100% of answerable questions, skips the clearly off-topic 12%) and the LLM's refusal handles the rest.
 
-Answer-quality numbers (`--llm`) are not recorded yet: a 3-question smoke run scored faithfulness 1.0 and answer relevancy 0.89, and the full run needs about $0.15–0.30 of LLM credit with Claude Haiku as model and judge.
+### Answer quality (all 141 questions, Claude Haiku 5.5 as model and judge)
+
+| Metric | Result |
+|---|---|
+| Answerable questions answered | 116 / 116 (1.00) |
+| Unanswerable + forbidden questions refused | 25 / 25 (1.00) |
+| Answers with citations / invalid citations | 1.00 / 0 |
+| RAGAS faithfulness | 0.957 |
+| RAGAS answer relevancy | 0.870 |
+| Cost per full run | about $0.16 |
+
+- The LLM refused all 22 unanswerable or forbidden questions that the −11 score gate let through, so loosening the gate cost no correctness.
+- RAGAS with a small judge is noisy. Haiku scored the same 15 answers 0.62, then 0.75 on a re-run; Claude Sonnet 5.5 scored them 0.87. Answers like "The on-call handoff happens every Monday at 10:00 Pacific time [1]" (verbatim from the runbook) scored 0.5.
+- Part of that was the `[1]` markers, which the judge treated as unsupported claims. Stripping them before scoring raised faithfulness on those 15 from 0.75 to 0.83, and on the full set from 0.947 to 0.957.
+- CI keeps Haiku as judge (Sonnet costs about 20× more per run) and sets thresholds about 0.02 below the baseline to absorb judge variance; see `eval/thresholds.json`.
 
 ### CI
 
@@ -132,7 +146,7 @@ Answer-quality numbers (`--llm`) are not recorded yet: a 3-question smoke run sc
 ## Roadmap (Industry edition)
 
 1. ~~Core pipeline: upload, parse, chunk, hybrid search, rerank, cited streaming, feedback~~
-2. ~~Eval and tracing: 141-question set, RAGAS faithfulness/relevancy gated in CI, Langfuse traces~~ (full `--llm` baseline pending credits)
+2. ~~Eval and tracing: 141-question set, RAGAS faithfulness/relevancy gated in CI, Langfuse traces~~
 3. Google Drive connector: changes API with page tokens, deletes, permission sync into `acl`, SSO (OIDC)
 4. Notion and Confluence connectors; Alembic migrations; large tenants on their own Qdrant shard keys
 5. Semantic cache keyed on question embedding **and** ACL fingerprint, invalidated on document version; load tests for p95
