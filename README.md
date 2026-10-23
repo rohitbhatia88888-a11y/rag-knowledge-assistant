@@ -76,9 +76,10 @@ The flow keeps no server-side state: state, nonce and the PKCE verifier travel i
 
 ## Google Drive connector
 
-1. In Google Cloud Console, enable the **Google Drive API** and create a **service account**. Download its JSON key and set `GOOGLE_SERVICE_ACCOUNT_FILE=/path/to/key.json` for the API and the worker.
-2. Share the folders to index with the service account's email (Viewer is enough). On Google Workspace you can instead grant domain-wide delegation for the `drive.readonly` scope and set `subject` on the connector to impersonate a user.
-3. Sign in as an admin, open **Connectors**, and add the folder IDs (the last part of the folder's URL). The first sync is a full crawl.
+1. In Google Cloud Console, enable the **Google Drive** and **IAM Service Account Credentials** APIs and create a **service account** (no project roles needed).
+2. Authenticate without a key file (works where the org policy `iam.disableServiceAccountKeyCreation` blocks keys, the default for new organizations): run `gcloud auth application-default login`, grant yourself `roles/iam.serviceAccountTokenCreator` on the service account, and set `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT=<its email>`. The app then gets one-hour tokens for the service account. In production the same works from a workload identity instead of a user login. A key file (`GOOGLE_SERVICE_ACCOUNT_FILE`) is still supported, and is required for Workspace domain-wide delegation (`subject` on the connector).
+3. Share the folders with the service account's email **as Editor**, added by email under *People with access*. Drive hides a file's sharing list from Viewers, and without it there is no ACL, so files are skipped (the connector shows this). The token only carries the `drive.readonly` scope, so the service account still cannot change anything. Access through "Anyone with the link" doesn't count: the service account can open the folder by ID but is never an editor.
+4. Sign in as an admin, open **Connectors**, and add the folder IDs (the last part of the folder's URL). The first sync is a full crawl.
 
 How syncing works (`backend/app/connectors/gdrive/sync.py`):
 
@@ -92,7 +93,7 @@ How syncing works (`backend/app/connectors/gdrive/sync.py`):
 
 Sharing maps to principals: user → `user:<email>`, group → `group:<email>`, domain → `domain:<domain>` (matches every user with that email domain), anyone → `group:everyone` (within the tenant). PDFs, Markdown, text and Google Docs (exported as Markdown) are indexed; other types are skipped. The changes page token is saved only after a sync succeeds, so a failed sync is retried from the same point.
 
-The Drive sync tests run against an in-memory fake Drive with a real changes feed (`tests/test_gdrive_sync.py`); SSO is tested against a fake IdP signing real RS256 tokens (`tests/test_oidc.py`) and was checked end to end against `ghcr.io/navikt/mock-oauth2-server`.
+Tested live against a real Drive folder with keyless impersonation: first full sync indexed both Google Docs; an incremental sync then picked up an edit (re-indexed), a trashed file (removed) and the folder going from link-shared to Restricted (`group:everyone` dropped, so another user's question got "I don't know"). The Drive sync tests run against an in-memory fake Drive with a real changes feed (`tests/test_gdrive_sync.py`); SSO is tested against a fake IdP signing real RS256 tokens (`tests/test_oidc.py`) and was checked end to end against `ghcr.io/navikt/mock-oauth2-server`.
 
 ## Tracing (Langfuse)
 

@@ -65,6 +65,7 @@ class DriveSync:
         self.upload_dir = upload_dir
         self.roots: list[str] = list(connector.config.get("folder_ids", []))
         self.stats = SyncStats()
+        self.warnings: set[str] = set()  # problems needing an admin's attention, shown on the connector
 
     async def run(self, full: bool = False) -> dict:
         """Sync and return the new connector state. The caller persists it."""
@@ -177,6 +178,16 @@ class DriveSync:
             except Exception as e:
                 log.warning("permissions for %s (%s) failed: %s", f.name, f.id, e)
                 self.stats.failed += 1
+                if _is_forbidden(e):
+                    # Drive hides sharing settings from Viewers. Without them there is no ACL,
+                    # so the file stays out of the index (and leaves it if it was there).
+                    self.warnings.add(
+                        "The service account can't read sharing settings. Share the folder with it as "
+                        "Editor; its token is read-only (drive.readonly), so it still can't change anything."
+                    )
+                    if doc is not None:
+                        await self._delete(db, doc)
+                        await db.commit()
                 return
 
             stored_mime, suffix = SUPPORTED[f.mime_type]
@@ -261,3 +272,7 @@ class DriveSync:
 
     def stats_dict(self) -> dict:
         return asdict(self.stats)
+
+
+def _is_forbidden(e: Exception) -> bool:
+    return getattr(getattr(e, "response", None), "status_code", None) == 403

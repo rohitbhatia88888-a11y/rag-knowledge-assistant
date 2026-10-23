@@ -5,6 +5,7 @@ import uuid
 from collections import Counter
 from dataclasses import replace
 
+import httpx
 import pytest
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy import select
@@ -248,6 +249,23 @@ async def test_folder_moves(env):
     drive.trash("hr")
     await sync()
     assert set(await docs()) == {"oncall", "travel"}
+
+
+async def test_unreadable_sharing_keeps_file_out(env):
+    """Drive returns 403 on permissions.list for Viewers; without an ACL the file must not be indexed."""
+    drive, sync, docs, _ = env
+    drive.put("leave", "Leave policy.md", LEAVE, ["root"], [OWNER])
+    await sync()
+    assert set(await docs()) == {"leave"}
+
+    async def forbidden(file_id):
+        raise httpx.HTTPStatusError("403", request=httpx.Request("GET", "x"), response=httpx.Response(403))
+
+    drive.list_permissions = forbidden
+    drive.edit("leave", LEAVE + "\nMore text.\n")
+    s = await sync()
+    assert await docs() == {} and s.stats.failed == 1
+    assert any("Editor" in w for w in s.warnings)
 
 
 async def test_changes_feed_pagination_and_full_resync(env):

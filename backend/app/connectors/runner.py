@@ -9,7 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import get_settings
-from app.connectors.gdrive.client import DriveClient, GoogleDriveClient
+from app.connectors.gdrive.client import (
+    DriveClient,
+    GoogleDriveClient,
+    impersonated_credentials,
+    key_file_credentials,
+)
 from app.connectors.gdrive.sync import DriveSync
 from app.db import Connector
 from app.retrieval.store import VectorStore
@@ -23,10 +28,16 @@ def sync_job_id(connector_id) -> str:
 
 
 def make_drive_client(connector: Connector) -> DriveClient:
-    path = get_settings().google_service_account_file
-    if not path:
-        raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_FILE is not set")
-    return GoogleDriveClient(path, subject=connector.config.get("subject"))
+    s = get_settings()
+    if s.google_impersonate_service_account:
+        if connector.config.get("subject"):
+            raise RuntimeError("Domain-wide delegation (subject) needs GOOGLE_SERVICE_ACCOUNT_FILE")
+        creds = impersonated_credentials(s.google_impersonate_service_account)
+    elif s.google_service_account_file:
+        creds = key_file_credentials(s.google_service_account_file, connector.config.get("subject"))
+    else:
+        raise RuntimeError("Set GOOGLE_IMPERSONATE_SERVICE_ACCOUNT (keyless) or GOOGLE_SERVICE_ACCOUNT_FILE")
+    return GoogleDriveClient(creds)
 
 
 async def run_sync(
@@ -72,7 +83,9 @@ async def run_sync(
         if error:
             connector.status, connector.last_error = "failed", error
         else:
-            connector.status, connector.last_error, connector.state = "ok", None, state
+            # A sync can succeed overall yet skip files that need an admin to fix sharing.
+            warning = " ".join(sorted(sync.warnings)) or None
+            connector.status, connector.last_error, connector.state = "ok", warning, state
             if full:
                 connector.last_full_sync_at = started
         await db.commit()
