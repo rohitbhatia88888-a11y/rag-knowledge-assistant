@@ -31,6 +31,7 @@ async def stream_answer(llm: AsyncOpenAI, question: str, chunks: list[RetrievedC
     stream = await llm.chat.completions.create(
         model=get_settings().llm_model,
         temperature=0.1,
+        max_tokens=get_settings().answer_max_tokens,
         stream=True,
         messages=answer_messages(question, chunks),
     )

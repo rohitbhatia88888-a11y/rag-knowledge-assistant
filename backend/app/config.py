@@ -25,11 +25,13 @@ class Settings(BaseSettings):
     fastembed_model: str = "BAAI/bge-small-en-v1.5"
     openai_embedding_model: str = "text-embedding-3-small"
     sparse_model: str = "Qdrant/bm25"
-    reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    reranker_model: str = "Xenova/ms-marco-MiniLM-L-12-v2"
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None
     llm_model: str = "gpt-4.1-mini"
+    # Always cap output: some gateways (OpenRouter) otherwise reserve the model's full limit against credits.
+    answer_max_tokens: int = 1024
 
     # Chunking
     chunk_target_chars: int = 1200
@@ -39,8 +41,10 @@ class Settings(BaseSettings):
     candidate_k: int = 40  # per-branch candidates before fusion
     fused_k: int = 20  # sent to the re-ranker
     final_k: int = 5  # sent to the LLM
-    # Cross-encoder logit below which a chunk is treated as irrelevant.
-    min_rerank_score: float = 0.0
+    # If the best chunk's cross-encoder logit is below this, answer "I don't know".
+    # MiniLM-L-12 on the sample docs: answerable questions top out >= -3.7, unanswerable <= -10.2.
+    # Re-tune on the Phase 2 eval set.
+    min_rerank_score: float = -7.0
 
 
 @lru_cache

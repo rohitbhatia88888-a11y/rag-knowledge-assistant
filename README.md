@@ -20,8 +20,8 @@ Next.js chat ──► FastAPI ──► query rewrite ──► hybrid search (
 | Hybrid search | One Qdrant collection with a dense vector (BGE via fastembed, or OpenAI) and a sparse BM25 vector (IDF computed by Qdrant), fused with RRF |
 | Permissions | `tenant_id` + `acl` on every chunk payload, filtered **inside** both search branches. ACL changes update payloads only, with no re-embedding. Fails closed. |
 | Incremental re-index | Point IDs derive from `document_id + content_hash`; re-indexing embeds only new chunks and deletes stale ones |
-| Re-ranking | Cross-encoder via fastembed (`ms-marco-MiniLM-L-6-v2` by default, `bge-reranker-base` optional) |
-| "I don't know" | If no chunk clears `MIN_RERANK_SCORE`, the LLM isn't called; the prompt also requires the exact refusal sentence |
+| Re-ranking | Cross-encoder via fastembed (`ms-marco-MiniLM-L-12-v2`; it separated answerable from unanswerable questions better than `jina-reranker-v1-turbo` and `bge-reranker-v2-m3` on the samples). Section headings are included in what it scores |
+| "I don't know" | If the top chunk scores below `MIN_RERANK_SCORE`, the LLM isn’t called; the prompt also requires the exact refusal sentence |
 | Citations | Numbered sources, `[n]` markers validated after generation; invalid ones are logged |
 | Feedback | Thumbs up/down stored against the assistant message, which records the search query and cited chunk IDs |
 

@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 
 from qdrant_client import AsyncQdrantClient, models
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.auth import Principal
 from app.ingest.chunk import Chunk
@@ -66,11 +67,16 @@ class VectorStore:
     async def ensure_collection(self, dense_dim: int) -> None:
         if await self.client.collection_exists(self.collection):
             return
-        await self.client.create_collection(
-            self.collection,
-            vectors_config={DENSE: models.VectorParams(size=dense_dim, distance=models.Distance.COSINE)},
-            sparse_vectors_config={SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
-        )
+        try:
+            await self.client.create_collection(
+                self.collection,
+                vectors_config={DENSE: models.VectorParams(size=dense_dim, distance=models.Distance.COSINE)},
+                sparse_vectors_config={SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
+            )
+        except UnexpectedResponse as e:
+            if e.status_code == 409:  # API and worker raced at startup; the other one created it
+                return
+            raise
         # is_tenant co-locates each tenant's points on disk, which keeps per-tenant filtered search fast.
         await self.client.create_payload_index(
             self.collection,
