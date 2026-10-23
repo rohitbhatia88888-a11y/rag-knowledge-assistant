@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
-from app.api import auth, chat, documents, feedback
+from app.api import auth, chat, connectors, documents, feedback, oidc
 from app.config import get_settings
 from app.db import init_db
 from app.retrieval.embeddings import get_dense_embedder
@@ -34,11 +34,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="RAG Knowledge Assistant", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[get_settings().web_url],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for r in (auth.router, documents.router, chat.router, feedback.router):
+for r in (auth.router, oidc.router, documents.router, chat.router, feedback.router, connectors.router):
     app.include_router(r)
 
 

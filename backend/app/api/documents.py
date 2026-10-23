@@ -19,7 +19,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 ALLOWED_SUFFIXES = {".pdf", ".md", ".markdown", ".txt"}
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-PRINCIPAL_RE = re.compile(r"^(user|group):[\w.@-]+$")
+PRINCIPAL_RE = re.compile(r"^(user|group|domain):[\w.@+-]+$")
 
 
 class DocumentOut(BaseModel):
@@ -52,7 +52,7 @@ def _validate_acl(entries: list[str]) -> list[str]:
     cleaned = sorted({e.strip() for e in entries if e.strip()})
     bad = [e for e in cleaned if not PRINCIPAL_RE.match(e)]
     if bad:
-        raise ValueError(f"ACL entries must look like user:<id> or group:<name>, got {bad}")
+        raise ValueError(f"ACL entries must look like user:<id>, group:<name> or domain:<domain>, got {bad}")
     if not cleaned:
         raise ValueError("ACL cannot be empty")
     return cleaned

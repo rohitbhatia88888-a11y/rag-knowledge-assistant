@@ -17,6 +17,25 @@ class Settings(BaseSettings):
     # Auth: HS256 JWTs for now; swap for OIDC (Google / Entra) verification later.
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
+    session_ttl_hours: int = 8
+
+    # SSO (OpenID Connect): Google, Okta, Entra ID, ... Disabled unless issuer and client ID are set.
+    oidc_issuer: str | None = None  # e.g. https://accounts.google.com
+    oidc_client_id: str | None = None
+    oidc_client_secret: str | None = None
+    oidc_redirect_uri: str = "http://localhost:8000/auth/oidc/callback"
+    # Sign-ins are accepted only from these email domains, mapped to a tenant: {"halcyon.com": "halcyon"}.
+    oidc_domain_tenants: dict[str, str] = {}
+    oidc_groups_claim: str = "groups"  # Okta/Entra can emit groups; Google cannot
+    web_url: str = "http://localhost:3000"
+
+    # Google Drive connector authenticates as a service account; share folders with its email.
+    # Preferred: keyless impersonation of that service account via Application Default Credentials.
+    google_impersonate_service_account: str | None = None  # e.g. rag-drive-reader@project.iam.gserviceaccount.com
+    # Alternative: a key file (needed for domain-wide delegation via a connector's `subject`).
+    google_service_account_file: str | None = None
+    connector_sync_minutes: int = 10
+    connector_full_sync_hours: int = 24
 
     rate_limit_per_minute: int = 30
 
