@@ -48,6 +48,36 @@ export const Send = (p: IconProps) => (
   </Icon>
 );
 
+export const Lock = (p: IconProps) => (
+  <Icon {...p}>
+    <rect width="18" height="11" x="3" y="11" rx="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </Icon>
+);
+
+export const Check = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M20 6 9 17l-5-5" />
+  </Icon>
+);
+
+export const ArrowRight = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 12h14" />
+    <path d="m12 5 7 7-7 7" />
+  </Icon>
+);
+
+/** Folio mark: two offset pages. */
+export const FolioMark = ({ size = 28 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+    <rect x="9" y="4" width="18" height="23" rx="2.5" fill="var(--accent)" opacity="0.22" />
+    <rect x="5" y="7" width="18" height="23" rx="2.5" fill="var(--panel)" stroke="var(--text)" strokeWidth="1.8" />
+    <path d="M9.5 14h9M9.5 18h9M9.5 22h5.5" stroke="var(--text)" strokeWidth="1.8" strokeLinecap="round" />
+    <rect x="9.5" y="16.6" width="9" height="2.8" rx="1" fill="var(--highlight)" opacity="0.9" />
+  </svg>
+);
+
 export const ExternalLink = (p: IconProps) => (
   <Icon {...p}>
     <path d="M15 3h6v6" />

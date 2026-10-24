@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Lock } from "@/components/Icons";
 import { api, type Doc } from "@/lib/api";
+import { documentName } from "@/lib/format";
 
 export function Documents({ token, userId, readOnly = false }: { token: string; userId: string; readOnly?: boolean }) {
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -90,11 +92,25 @@ export function Documents({ token, userId, readOnly = false }: { token: string; 
         </summary>
         <ul>
           {docs.map((d) => (
-            <li key={d.id}>
-              <div className="doc-title">{d.title}</div>
-              <div className="muted small">
-                <span className={`status ${d.status}`}>{d.status}</span>
-                {d.chunk_count != null && ` · ${d.chunk_count} chunks`} · {d.acl.join(", ")}
+            <li key={d.id} className="doc">
+              <span className="doc-type" aria-hidden="true">
+                {d.mime_type === "application/pdf" ? "PDF" : "MD"}
+              </span>
+              <div className="doc-body">
+                <div className="doc-title">
+                  {documentName(d.title)}
+                  {!d.acl.includes("group:everyone") && (
+                    <span className="restricted" title={`Restricted: ${d.acl.join(", ")}`}>
+                      <Lock size={12} />
+                      <span className="visually-hidden">restricted</span>
+                    </span>
+                  )}
+                </div>
+                <div className="doc-meta">
+                  {d.status !== "ready" && <span className={`status ${d.status}`}>{d.status} · </span>}
+                  {d.chunk_count != null && `${d.chunk_count} chunks`}
+                  {readOnly ? "" : ` · ${d.acl.join(", ")}`}
+                </div>
               </div>
               {d.error && <div className="error">{d.error}</div>}
               {d.created_by === userId && (

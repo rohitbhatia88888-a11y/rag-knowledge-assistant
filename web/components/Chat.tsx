@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Close, ExternalLink, Send, ThumbsDown, ThumbsUp } from "@/components/Icons";
+import { ArrowRight, Close, ExternalLink, Send, ThumbsDown, ThumbsUp } from "@/components/Icons";
 import { api, API_URL, streamChat, type Source } from "@/lib/api";
+import { documentName } from "@/lib/format";
 
 type Turn = {
   question: string;
@@ -15,6 +16,10 @@ type Turn = {
   rating?: 1 | -1;
   pending: boolean;
 };
+
+function pages(s: Source): string {
+  return s.page_start === s.page_end ? `p. ${s.page_start}` : `pp. ${s.page_start}–${s.page_end}`;
+}
 
 export function Chat({ token, suggestions = [] }: { token: string; suggestions?: string[] }) {
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -93,101 +98,116 @@ export function Chat({ token, suggestions = [] }: { token: string; suggestions?:
       <div className="thread">
         {!turns.length && (
           <div className="empty">
-            <h1>Ask about your company's documents</h1>
-            <p className="muted">Answers cite the exact page and passage, and only use documents you can access.</p>
+            <p className="eyebrow">Ask anything</p>
+            <h1>What would you like to know?</h1>
+            <p className="muted">Every answer cites its page and passage, and only uses documents you can access.</p>
             {suggestions.length > 0 && (
               <div className="suggestions" role="list" aria-label="Suggested questions">
                 {suggestions.map((q) => (
                   <button key={q} role="listitem" className="suggestion" onClick={() => ask(q)}>
-                    {q}
+                    <span>{q}</span>
+                    <ArrowRight size={16} />
                   </button>
                 ))}
               </div>
             )}
           </div>
         )}
-        {turns.map((t, i) => (
-          <article key={i} className="turn" aria-label={`Question ${i + 1}`}>
-            <div className="question">{t.question}</div>
-            <div className="answer" aria-live="polite" aria-busy={t.pending}>
-              {t.answer ? (
-                <ReactMarkdown
-                  components={{
-                    a: ({ href, children }) => {
-                      const n = Number(href?.replace("#cite-", ""));
-                      const src = t.sources.find((s) => s.n === n);
-                      return src ? (
-                        <button
-                          className="cite"
-                          data-focus-id={`cite-${i}-${n}`}
-                          onClick={(e) => showPassage(src, e.currentTarget)}
-                          aria-label={`Source ${n}: ${src.document_title}, page ${src.page_start}`}
-                        >
-                          {n}
-                        </button>
-                      ) : (
-                        <a href={href}>{children}</a>
-                      );
-                    },
-                  }}
-                >
-                  {t.answer.replace(/\[(\d+)\]/g, "[$1](#cite-$1)")}
-                </ReactMarkdown>
-              ) : (
-                t.pending && (
-                  <span className="status-line">
-                    <span className="dots" aria-hidden="true" />
-                    {t.sources.length ? "Writing the answer…" : "Searching documents you can access…"}
-                  </span>
-                )
-              )}
-              {t.error && (
-                <p className="error" role="alert">
-                  {t.error}
-                </p>
-              )}
-            </div>
-            {/* Once answered, show sources only if the answer cited some: after "I don't know" they would mislead. */}
-            {t.sources.length > 0 && (t.pending || t.cited.length > 0 || t.error) && (
-              <div className="sources" aria-label="Sources">
-                {t.sources.map((s) => {
-                  const cited = t.cited.includes(s.n);
-                  return (
-                    <button
-                      key={s.chunk_id}
-                      className={`source ${cited ? "cited" : ""}`}
-                      data-focus-id={`source-${i}-${s.n}`}
-                      onClick={(e) => showPassage(s, e.currentTarget)}
-                      aria-label={`Source ${s.n}${cited ? ", cited" : ""}: ${s.document_title}, page ${s.page_start}`}
+        {turns.map((t, i) => {
+          // Once answered, show sources only if the answer cited some: after "I don't know" they would mislead.
+          const showSources = t.sources.length > 0 && (t.pending || t.cited.length > 0 || !!t.error);
+          return (
+            <article key={i} className="turn" aria-label={`Question ${i + 1}`}>
+              <div className="question">{t.question}</div>
+              <div className="answer-card">
+                <p className="label">Answer</p>
+                <div className="answer" aria-live="polite" aria-busy={t.pending}>
+                  {t.answer ? (
+                    <ReactMarkdown
+                      components={{
+                        a: ({ href, children }) => {
+                          const n = Number(href?.replace("#cite-", ""));
+                          const src = t.sources.find((s) => s.n === n);
+                          return src ? (
+                            <button
+                              className="cite"
+                              data-focus-id={`cite-${i}-${n}`}
+                              onClick={(e) => showPassage(src, e.currentTarget)}
+                              aria-label={`Source ${n}: ${documentName(src.document_title)}, ${pages(src)}`}
+                            >
+                              {n}
+                            </button>
+                          ) : (
+                            <a href={href}>{children}</a>
+                          );
+                        },
+                      }}
                     >
-                      <span className="n">{s.n}</span> {s.document_title} · p.{s.page_start}
+                      {t.answer.replace(/\[(\d+)\]/g, "[$1](#cite-$1)")}
+                    </ReactMarkdown>
+                  ) : (
+                    t.pending && (
+                      <span className="status-line">
+                        <span className="dots" aria-hidden="true" />
+                        {t.sources.length ? "Writing the answer…" : "Searching documents you can access…"}
+                      </span>
+                    )
+                  )}
+                  {t.error && (
+                    <p className="error" role="alert">
+                      {t.error}
+                    </p>
+                  )}
+                </div>
+                {showSources && (
+                  <ol className="footnotes" aria-label="Sources">
+                    {t.sources.map((s) => {
+                      const cited = t.cited.includes(s.n);
+                      return (
+                        <li key={s.chunk_id} className={cited ? "cited" : ""}>
+                          <button
+                            className="footnote"
+                            data-focus-id={`source-${i}-${s.n}`}
+                            onClick={(e) => showPassage(s, e.currentTarget)}
+                            aria-label={`Source ${s.n}${cited ? ", cited" : ""}: ${documentName(s.document_title)}, ${pages(s)}`}
+                          >
+                            <span className="fn-n">{s.n}</span>
+                            <span className="fn-doc">{documentName(s.document_title)}</span>
+                            <span className="fn-meta">
+                              {pages(s)}
+                              {s.headings.length > 0 && ` · ${s.headings[s.headings.length - 1]}`}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+                {t.messageId && (
+                  <div className="rating" role="group" aria-label="Was this answer helpful?">
+                    <span className="muted small">Helpful?</span>
+                    <button
+                      className={`icon-button ${t.rating === 1 ? "on" : ""}`}
+                      onClick={() => rate(i, 1)}
+                      aria-label="Helpful"
+                      aria-pressed={t.rating === 1}
+                    >
+                      <ThumbsUp />
                     </button>
-                  );
-                })}
+                    <button
+                      className={`icon-button ${t.rating === -1 ? "on" : ""}`}
+                      onClick={() => rate(i, -1)}
+                      aria-label="Not helpful"
+                      aria-pressed={t.rating === -1}
+                    >
+                      <ThumbsDown />
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-            {t.messageId && (
-              <div className="rating" role="group" aria-label="Was this answer helpful?">
-                <button
-                  className={`icon-button ${t.rating === 1 ? "on" : ""}`}
-                  onClick={() => rate(i, 1)}
-                  aria-label="Helpful"
-                  aria-pressed={t.rating === 1}
-                >
-                  <ThumbsUp />
-                </button>
-                <button
-                  className={`icon-button ${t.rating === -1 ? "on" : ""}`}
-                  onClick={() => rate(i, -1)}
-                  aria-label="Not helpful"
-                  aria-pressed={t.rating === -1}
-                >
-                  <ThumbsDown />
-                </button>
-              </div>
-            )}
-          </article>
-        ))}
+            </article>
+          );
+        })}
         <div ref={bottom} />
       </div>
 
@@ -198,41 +218,45 @@ export function Chat({ token, suggestions = [] }: { token: string; suggestions?:
           if (input.trim() && !pending) ask(input.trim());
         }}
       >
-        <label htmlFor="question" className="visually-hidden">
-          Your question
-        </label>
-        <input
-          id="question"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question, e.g. How many days of annual leave do I get?"
-          autoComplete="off"
-          autoFocus
-        />
-        <button type="submit" disabled={pending || !input.trim()} className="send">
-          <Send /> Ask
-        </button>
+        <div className="composer-field">
+          <label htmlFor="question" className="visually-hidden">
+            Your question
+          </label>
+          <input
+            id="question"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about policies, runbooks, benefits…"
+            autoComplete="off"
+            autoFocus
+          />
+          <button type="submit" disabled={pending || !input.trim()} className="send" aria-label="Ask">
+            <Send />
+          </button>
+        </div>
+        <p className="composer-hint">Answers cite their sources · press Enter to ask</p>
       </form>
 
       {active && (
         <div className="passage" role="dialog" aria-modal="false" aria-labelledby="passage-title">
           <div className="passage-head">
             <div>
-              <strong id="passage-title">{active.document_title}</strong>
-              <div className="muted small">
-                {active.page_start === active.page_end
-                  ? `Page ${active.page_start}`
-                  : `Pages ${active.page_start}–${active.page_end}`}
+              <p className="label">Source</p>
+              <h2 id="passage-title">{documentName(active.document_title)}</h2>
+              <p className="passage-meta">
+                {pages(active)}
                 {active.headings.length > 0 && ` · ${active.headings.join(" › ")}`}
-              </div>
+              </p>
             </div>
             <button ref={closeButton} className="icon-button" onClick={closePassage} aria-label="Close passage">
               <Close />
             </button>
           </div>
-          <pre>{active.text}</pre>
+          <div className="sheet">
+            <mark>{active.text}</mark>
+          </div>
           <button className="secondary" onClick={() => openSource(active)}>
-            <ExternalLink size={16} /> Open document at this page
+            <ExternalLink size={16} /> Open document at {pages(active)}
           </button>
         </div>
       )}

@@ -68,6 +68,13 @@ def persona_groups(persona: str, corpus_dir: Path | None = None) -> list[str]:
     return manifest(corpus_dir or corpus_path())["personas"][persona]
 
 
+def persona_documents(persona: str, corpus_dir: Path | None = None) -> list[str]:
+    """Titles of the corpus documents a persona's groups can read (same rule as the ACL filter)."""
+    m = manifest(corpus_dir or corpus_path())
+    principals = {"group:everyone", *(f"group:{g}" for g in m["personas"][persona])}
+    return [Path(d["file"]).stem for d in m["documents"] if principals & set(d["acl"])]
+
+
 def corpus_path() -> Path:
     s = get_settings()
     return Path(s.demo_corpus_dir) if s.demo_corpus_dir else DEFAULT_CORPUS

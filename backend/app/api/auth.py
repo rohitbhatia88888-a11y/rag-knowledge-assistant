@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import Principal, current_principal, issue_token
 from app.config import Settings, get_settings
-from app.demo import PERSONAS, persona_groups
+from app.demo import PERSONAS, persona_documents, persona_groups
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 DEMO_TENANT = "halcyon"
@@ -31,7 +31,10 @@ def dev_token(body: DevTokenRequest, settings: Settings = Depends(get_settings))
 def demo_personas(settings: Settings = Depends(get_settings)) -> list[dict]:
     if not settings.demo_mode:
         raise HTTPException(404)
-    return [{"id": pid, **p, "groups": persona_groups(pid)} for pid, p in PERSONAS.items()]
+    return [
+        {"id": pid, **p, "groups": persona_groups(pid), "documents": persona_documents(pid)}
+        for pid, p in PERSONAS.items()
+    ]
 
 
 @router.post("/demo/token")
