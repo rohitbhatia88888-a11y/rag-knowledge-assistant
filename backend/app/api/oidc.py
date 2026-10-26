@@ -115,7 +115,7 @@ def tenant_for(claims: dict, s: Settings) -> tuple[str, str]:
 
 @router.get("/config")
 def auth_config(s: Settings = Depends(get_settings)) -> dict:
-    return {"sso": bool(s.oidc_issuer and s.oidc_client_id), "dev_login": s.env == "dev"}
+    return {"sso": bool(s.oidc_issuer and s.oidc_client_id), "dev_login": s.env == "dev", "demo": s.demo_mode}
 
 
 @router.get("/oidc/login")

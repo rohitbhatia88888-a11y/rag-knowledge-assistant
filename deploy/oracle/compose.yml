@@ -1,0 +1,31 @@
+# Runs on the VM: the demo container behind Caddy, which gets and renews HTTPS certificates itself.
+# SITE_ADDRESS, OPENAI_API_KEY and JWT_SECRET come from the .env file next to this one (created by deploy.sh).
+services:
+  demo:
+    build:
+      context: ./src
+      dockerfile: deploy/Dockerfile.demo
+    image: rag-demo
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      WEB_URL: https://${SITE_ADDRESS}
+    mem_limit: 2g
+    expose: ["7860"]
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    depends_on: [demo]
+    ports: ["80:80", "443:443"]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

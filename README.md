@@ -1,6 +1,15 @@
-# Enterprise RAG Knowledge Assistant
+# Folio: an enterprise RAG knowledge assistant
 
 A chat assistant over company documents that answers in plain language, cites the exact page and passage behind every answer, and only reads chunks the asking user is allowed to see.
+
+**Live demo: https://130-61-18-125.sslip.io**. Pick a persona (employee, engineer, HR, support) and ask the same question as each: answers change with what that role is allowed to read. The demo runs over Halcyon Robotics, a fictional company (11 documents, 4 permission groups), and questions are rate-limited.
+
+| Area | Highlights |
+|---|---|
+| Retrieval | Hybrid dense + BM25 search in Qdrant with the ACL filter inside the search, cross-encoder re-ranking |
+| Answer quality | RAGAS faithfulness 0.96, answer relevancy 0.87; 116/116 answerable answered, 25/25 unanswerable or forbidden refused ([details](#evaluation)) |
+| Permissions | 0 restricted chunks retrieved across 141 eval questions; Google Drive sharing synced into ACLs |
+| Engineering | FastAPI, Next.js, Postgres + Alembic, Redis/arq workers, OIDC SSO, Langfuse tracing, CI gate on RAGAS scores |
 
 ## Architecture
 
@@ -52,11 +61,23 @@ cd backend && uv run arq app.worker.WorkerSettings
 cd web && npm install && npm run dev
 ```
 
-Open http://localhost:3000, sign in as `alice` with group `hr` (add `admins` to manage connectors), then upload `samples/*.md` with different "Visible to" settings. Sign in as `bob` with no groups to see the permission filter at work.
+Open http://localhost:3000 (the web app is branded Folio), sign in as `alice` with group `hr` (add `admins` to manage connectors), then upload `samples/*.md` with different "Visible to" settings. Sign in as `bob` with no groups to see the permission filter at work.
 
 Or run everything in containers: `docker-compose up --build`. With Colima, give the VM at least 6 GB (`colima start --cpu 4 --memory 6`); the default 2 GB gets the API container OOM-killed, especially alongside Langfuse.
 
 Without `OPENAI_API_KEY` the chat still runs retrieval and shows the cited passages, then reports that no LLM is configured. Any OpenAI-compatible endpoint works; `.env.example` is set up for OpenRouter.
+
+## Public demo deployment
+
+The demo is one container (`deploy/Dockerfile.demo`): API and static web app together, SQLite and an embedded Qdrant indexed at build time, models baked in, persona sign-in, uploads and connectors off, and spending caps (questions per visitor per hour, per day overall, plus the API key's own daily limit).
+
+| Target | Cost | How |
+|---|---|---|
+| **Oracle Cloud Always Free** (live demo) | $0 | `deploy/oracle/deploy.sh <vm-ip>`: copies the committed tree, builds on the ARM VM, runs behind Caddy with automatic HTTPS on `<ip>.sslip.io` |
+| Google Cloud Run | about $0 (free tier, billing required) | `deploy/cloudrun/deploy.sh`: Cloud Build, Secret Manager, one instance, scales to zero |
+| Hugging Face Spaces | PRO plan for Docker Spaces | `deploy/huggingface/deploy.py <user>/<space>` |
+
+Run it locally the same way: `docker build -f deploy/Dockerfile.demo -t rag-demo . && docker run -p 7860:7860 -e OPENAI_API_KEY=... rag-demo`, then open http://localhost:7860.
 
 ## Single sign-on
 

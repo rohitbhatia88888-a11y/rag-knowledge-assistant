@@ -1,3 +1,5 @@
+import logging
+import secrets
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -7,6 +9,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     env: str = "dev"  # "dev" enables /auth/dev-token
+
+    # Public demo (single container): persona sign-in, read-only documents, no Redis/worker, spending caps.
+    demo_mode: bool = False
+    demo_corpus_dir: str | None = None
+    demo_questions_per_hour: int = 20  # per visitor IP
+    demo_questions_per_day: int = 500  # all visitors together; the API key's own daily cap is the backstop
+    web_static_dir: str | None = None  # serve the exported web app from the API (same origin)
+    qdrant_path: str | None = None  # embedded on-disk Qdrant instead of a server
 
     database_url: str = "postgresql+asyncpg://rag:rag@localhost:5432/rag"
     redis_url: str = "redis://localhost:6379/0"
@@ -75,4 +85,10 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    if s.jwt_secret == "change-me" and s.env != "dev":
+        # Never sign sessions with the public default outside dev. A random secret only means
+        # sessions end on restart; set JWT_SECRET to keep them across restarts.
+        logging.getLogger(__name__).warning("JWT_SECRET not set; using a random secret for this process")
+        s.jwt_secret = secrets.token_urlsafe(48)
+    return s

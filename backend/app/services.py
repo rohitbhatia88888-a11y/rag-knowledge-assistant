@@ -10,7 +10,8 @@ from app.retrieval.store import VectorStore
 @lru_cache
 def get_store() -> VectorStore:
     s = get_settings()
-    return VectorStore(AsyncQdrantClient(url=s.qdrant_url), s.qdrant_collection)
+    client = AsyncQdrantClient(path=s.qdrant_path) if s.qdrant_path else AsyncQdrantClient(url=s.qdrant_url)
+    return VectorStore(client, s.qdrant_collection)
 
 
 @lru_cache

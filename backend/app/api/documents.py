@@ -85,6 +85,8 @@ async def upload(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_db),
 ):
+    if get_settings().demo_mode:
+        raise HTTPException(403, "Uploads are disabled in the public demo")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(415, f"Unsupported file type {suffix!r}; allowed: {sorted(ALLOWED_SUFFIXES)}")
