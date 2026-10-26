@@ -151,6 +151,9 @@ function SignIn({
     else setError("Could not sign in");
   }
 
+  // Until the API says which sign-in this deployment uses, show nothing rather than the wrong screen.
+  if (!config && !error) return <div className="signin" aria-busy="true" />;
+
   if (config?.demo) {
     // Every document any persona can read, in a stable order (company-wide first).
     const allDocs = Array.from(new Set(personas.flatMap((p) => p.documents)));
