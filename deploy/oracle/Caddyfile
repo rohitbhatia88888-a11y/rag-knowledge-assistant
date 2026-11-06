@@ -11,3 +11,6 @@
 		-Server
 	}
 }
+
+# Other apps on this VM (e.g. Groundcheck) drop their own site blocks into ~/rag-demo/sites/.
+import /etc/caddy/sites/*.caddy
