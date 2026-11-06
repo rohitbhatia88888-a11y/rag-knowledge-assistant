@@ -1,0 +1,130 @@
+# Folio custom connector for Power Platform / Copilot Studio.
+# Custom connectors import OpenAPI 2.0 (Swagger), so this is written by hand
+# rather than taken from FastAPI's /openapi.json (which is OpenAPI 3.1).
+#
+# NOTE: POST /chat/answer does not exist yet. Folio's POST /chat streams SSE,
+# which a connector cannot consume. Add a non-streaming twin first (see
+# copilot-studio-build.md, step 0).
+swagger: "2.0"
+info:
+  title: Folio
+  description: Ask questions over permission-filtered enterprise documents in Folio, an enterprise RAG knowledge assistant.
+  version: "1.0"
+host: 130-61-18-125.sslip.io
+basePath: /
+schemes:
+  - https
+consumes:
+  - application/json
+produces:
+  - application/json
+securityDefinitions:
+  bearer:
+    type: apiKey
+    in: header
+    name: Authorization
+    description: 'Paste "Bearer <token>" from Folio.'
+security:
+  - bearer: []
+paths:
+  /chat/answer:
+    post:
+      operationId: AskFolio
+      summary: Ask Folio a question
+      description: Answers a question from the documents the caller can see, with numbered citations to the sources used. Use this for any question about company policy, HR, or internal documents.
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            type: object
+            required: [question]
+            properties:
+              question:
+                type: string
+                title: Question
+                description: The user's question in natural language.
+                x-ms-summary: Question
+              session_id:
+                type: string
+                title: Session ID
+                description: Optional. Pass the session_id from a previous answer to keep conversation context.
+                x-ms-summary: Session ID
+                x-ms-visibility: advanced
+      responses:
+        "200":
+          description: Answer with sources
+          schema:
+            $ref: "#/definitions/Answer"
+        "401":
+          description: Missing or invalid token
+  /documents:
+    get:
+      operationId: ListDocuments
+      summary: List documents
+      description: Lists the documents in Folio that the caller is allowed to see, with title and indexing status.
+      responses:
+        "200":
+          description: Documents
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Document"
+  /auth/me:
+    get:
+      operationId: WhoAmI
+      summary: Get the signed-in Folio identity
+      description: Returns the user, tenant and groups the connection's token resolves to. Useful for testing the connection.
+      responses:
+        "200":
+          description: Identity
+          schema:
+            type: object
+            properties:
+              user_id: {type: string}
+              tenant_id: {type: string}
+              groups:
+                type: array
+                items: {type: string}
+definitions:
+  Answer:
+    type: object
+    properties:
+      session_id:
+        type: string
+        x-ms-summary: Session ID
+      answer:
+        type: string
+        description: Answer text with [n] citation markers.
+        x-ms-summary: Answer
+      idk:
+        type: boolean
+        description: True when Folio found nothing relevant and declined to answer.
+        x-ms-summary: No answer found
+      sources:
+        type: array
+        x-ms-summary: Sources
+        items:
+          type: object
+          properties:
+            n: {type: integer, x-ms-summary: Citation number}
+            document_id: {type: string}
+            document_title: {type: string, x-ms-summary: Document title}
+            page_start: {type: integer}
+            page_end: {type: integer}
+            score: {type: number}
+      latency_ms:
+        type: integer
+  Document:
+    type: object
+    properties:
+      id: {type: string}
+      title: {type: string, x-ms-summary: Title}
+      source: {type: string}
+      mime_type: {type: string}
+      status: {type: string, x-ms-summary: Status}
+      page_count: {type: integer}
+      chunk_count: {type: integer}
+      created_by: {type: string}
+      created_at: {type: string, format: date-time}
+      updated_at: {type: string, format: date-time}
